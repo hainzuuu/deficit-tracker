@@ -24,8 +24,8 @@
     body { background: var(--bg); color: var(--text); padding: 24px 16px; display: flex; justify-content: center; min-height: 100vh; }
     .container { width: 100%; max-width: 1120px; display: flex; flex-direction: column; gap: 16px; }
 
-    /* Auth Screen */
-    #auth-view { max-width: 400px; margin: 80px auto; width: 100%; }
+    /* Auth Screens */
+    .auth-card { max-width: 400px; margin: 80px auto; width: 100%; }
     .auth-form { display: flex; flex-direction: column; gap: 12px; }
     .auth-form input { background: #090d16; border: 1px solid var(--border); color: var(--text); padding: 12px; border-radius: 6px; font-size: 0.95rem; outline: none; }
     .auth-form input:focus { border-color: #38bdf8; }
@@ -34,10 +34,10 @@
     .btn-login { background: #2563eb; color: #fff; }
     .btn-signup { background: transparent; border: 1px solid var(--border) !important; color: var(--text); }
     .btn-signup:hover { background: #1e293b; }
+    .auth-link { font-size: 0.8rem; color: #38bdf8; background: none; border: none; cursor: pointer; text-align: right; padding: 0; margin-top: -4px; }
 
     /* Main App */
     #app-view { display: none; flex-direction: column; gap: 16px; width: 100%; }
-    
     header { display: flex; justify-content: space-between; align-items: center; }
     h1 { font-size: 1.35rem; font-weight: 700; }
     .header-right { display: flex; align-items: center; gap: 10px; }
@@ -51,7 +51,6 @@
 
     .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; }
     
-    /* Logger Bar */
     .logger-bar {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -115,7 +114,7 @@
     .stat span { font-weight: 700; color: #fff; }
     .status-msg { font-size: 0.8rem; color: #38bdf8; min-height: 18px; }
 
-    /* Modal Styles */
+    /* Modal */
     .modal-overlay {
       display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
       background: rgba(0, 0, 0, 0.7); z-index: 1000; align-items: center; justify-content: center; padding: 16px;
@@ -151,17 +150,29 @@
 <body>
 
 <!-- AUTH SCREEN -->
-<div id="auth-view" class="card">
+<div id="auth-view" class="card auth-card">
   <h2 style="margin-bottom: 8px; font-size: 1.25rem;">Sign In</h2>
   <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">Access your private activity log</p>
   <form class="auth-form" onsubmit="handleAuth(event, 'login')">
     <input type="email" id="auth-email" placeholder="Email address" required />
     <input type="password" id="auth-password" placeholder="Password" required />
+    <button type="button" class="auth-link" onclick="handleForgotPassword()">Forgot password?</button>
     <div class="auth-buttons">
       <button type="submit" class="btn-login">Log In</button>
       <button type="button" class="btn-signup" onclick="handleAuth(event, 'signup')">Sign Up</button>
     </div>
     <div id="auth-error" class="status-msg" style="color: #ef4444;"></div>
+  </form>
+</div>
+
+<!-- PASSWORD UPDATE SCREEN (Shown when opening reset link) -->
+<div id="reset-password-view" class="card auth-card" style="display: none;">
+  <h2 style="margin-bottom: 8px; font-size: 1.25rem;">Set New Password</h2>
+  <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">Enter your new account password below.</p>
+  <form class="auth-form" onsubmit="handleUpdatePassword(event)">
+    <input type="password" id="new-password" placeholder="New Password" required />
+    <button type="submit" class="primary" style="margin-top: 6px;">Update Password</button>
+    <div id="reset-status" class="status-msg"></div>
   </form>
 </div>
 
@@ -175,7 +186,6 @@
         <span id="year-display"></span>
         <button class="icon-btn" onclick="shiftYear(1)">&rsaquo;</button>
       </div>
-      <!-- Setting Icon -->
       <button class="icon-btn" onclick="openSettings()" title="Settings">&#9881;</button>
     </div>
   </header>
@@ -283,15 +293,24 @@
   document.getElementById('date-input').value = todayStr;
 
   client.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      document.getElementById('auth-view').style.display = 'none';
+      document.getElementById('app-view').style.display = 'none';
+      document.getElementById('reset-password-view').style.display = 'block';
+      return;
+    }
+
     if (session && session.user) {
       currentUser = session.user;
       document.getElementById('user-email-display').textContent = currentUser.email;
       document.getElementById('auth-view').style.display = 'none';
+      document.getElementById('reset-password-view').style.display = 'none';
       document.getElementById('app-view').style.display = 'flex';
       fetchData();
     } else {
       currentUser = null;
       document.getElementById('auth-view').style.display = 'block';
+      document.getElementById('reset-password-view').style.display = 'none';
       document.getElementById('app-view').style.display = 'none';
     }
   });
@@ -318,6 +337,49 @@
     } else {
       const { data, error } = await client.auth.signInWithPassword({ email, password });
       if (error) errEl.textContent = error.message;
+    }
+  }
+
+  async function handleForgotPassword() {
+    const email = document.getElementById('auth-email').value;
+    const errEl = document.getElementById('auth-error');
+    if (!email) {
+      errEl.textContent = 'Enter your email above, then click Forgot Password.';
+      return;
+    }
+
+    errEl.style.color = '#38bdf8';
+    errEl.textContent = 'Sending password reset email...';
+
+    const { error } = await client.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+
+    if (error) {
+      errEl.style.color = '#ef4444';
+      errEl.textContent = error.message;
+    } else {
+      errEl.style.color = '#22c55e';
+      errEl.textContent = 'Reset link sent! Check your email inbox.';
+    }
+  }
+
+  async function handleUpdatePassword(e) {
+    e.preventDefault();
+    const newPassword = document.getElementById('new-password').value;
+    const statusEl = document.getElementById('reset-status');
+    statusEl.textContent = 'Updating...';
+
+    const { error } = await client.auth.updateUser({ password: newPassword });
+    if (error) {
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = error.message;
+    } else {
+      statusEl.style.color = '#22c55e';
+      statusEl.textContent = 'Password updated! Redirecting...';
+      setTimeout(() => {
+        window.location.href = window.location.origin + window.location.pathname;
+      }, 1500);
     }
   }
 
